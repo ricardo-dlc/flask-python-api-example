@@ -36,7 +36,11 @@ class DbConnection:
                     break
                 records.append(row)
             res["result"] = records if len(records) >= 2 else records[0] if len(records) >= 1 else None
+            self.connection.commit()
         except ProgrammingError as e:
+            res["error"] = True
+            res["errorMessage"] = e.msg
+        except Error as e:
             res["error"] = True
             res["errorMessage"] = e.msg
         return res

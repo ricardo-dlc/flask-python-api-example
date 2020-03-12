@@ -2,22 +2,12 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, request, jsonify, make_response
 from DbConnection2 import DbConnection
 from flask.logging import create_logger
+from jwcrypto import jwt, jwk, jws
 from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
 import logging
-import jwt
 import bcrypt
 import cryptography
-from jwcrypto import jwt, jwk, jws
-
-def read_file(filename):
-    with open(filename, "rb") as pemfile:
-        return jwk.JWK.from_pem(pemfile.read())
-    # fh = open(filename, "r")
-    # try:
-    #     return fh.read()
-    # finally:
-    #     fh.close()
+# import jwt
 
 logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
@@ -26,9 +16,6 @@ app.config['PRIVATE_KEY'] = read_file('./keys/jwt-key')
 app.config['PUBLIC_KEY'] = read_file('./keys/jwt-key.pub')
 app.config['EXP_TIME'] = 30
 logger = create_logger(app)
-
-def query(connection, query):
-    pass
 
 def consoleLog(message, type="debug"):
     time = datetime.now().strftime("%d/%m/%Y %I:%M:%S%p")
@@ -45,6 +32,10 @@ def consoleLog(message, type="debug"):
         logger.debug(time)
         logger.debug(message)
 
+def read_file(filename):
+    with open(filename, "rb") as pemfile:
+        return jwk.JWK.from_pem(pemfile.read())
+
 def response(message="", error=False, status=200, data=None, headers=None):
     date_object = datetime.now(timezone(timedelta(hours=-5)))
     date_string = ('{:%Y-%m-%d %X%Z}'.format(date_object))
@@ -55,6 +46,33 @@ def response(message="", error=False, status=200, data=None, headers=None):
         json = jsonify(status=status, message=message, error=error, datetime=date_string, data=data)
 
     return make_response(json, status, headers)
+
+def check_params(params, request_elements):
+    checks = {k: True if k in request_elements.keys() else False for k in params.keys()}
+    consoleLog([k for k, v in checks.items() if v == False])
+    if False in checks.values():
+        # message = [k for k, v in checks.items() if v == False]
+        return "Missing parameter(s): " \
+            + (", ".join(map(lambda parameter: "'" + str(parameter) + "'", [k for k, v in checks.items() if v == False]))) \
+            + "."
+    return None
+
+def check_type_of_params(params, request_elements):
+    checks = {k: True if  isinstance(request_elements[k], v) else False for k, v in params.items()}
+    if False in checks.values():
+        # message = [k for k, v in checks.items() if v == False]
+        return "Type error in parameter(s): " \
+            + (", ".join(map(lambda parameter: "('" + parameter[0] + "': must be '" + parameter[1].__name__ + "')", [(k, params[k]) for k, v in checks.items() if v == False]))) \
+            + "."
+    return None
+
+def get_exception_message(exception):
+    if hasattr(exception, 'message'):
+        consoleLog(exception.message)
+        return str(exception.message)
+    else:
+        consoleLog(exception)
+        return str(exception)
 
 def token_required(handler):
     @wraps(handler)
@@ -118,14 +136,12 @@ def register():
             usuario = '{}'
         LIMIT 1;
         """.format(req['usuario'])
-        # consoleLog(query)
         res = connection.query(query)
         message = res["errorMessage"] if res["error"] else ("" if res["result"] else "No data")
         result = res["result"]
         status = 400 if res["error"] else 200
         error = True if res["error"] else False
         connection.close()
-        consoleLog("Connection closed")
     except Exception as e:
         consoleLog(str(e))
         message = str(e)
@@ -137,7 +153,13 @@ def register():
         return response(message, error, status, result)
 
     if not result:
-        params = {"usuario": str, "password": str}
+        params = {
+            "usuario": str,
+            "password": str,
+            "nivel": int,
+            "idciudad": int,
+            "id_empleado": int
+        }
 
         params_check = check_params(params, req)
         if params_check:
@@ -147,28 +169,47 @@ def register():
         if type_check:
             return response(type_check, True, 400)
 
-        return response("Success")
+        req['password'] = bcrypt.hashpw(password=req['password'].encode('utf-8'), salt=bcrypt.gensalt(12)).decode('utf-8')
+
+        try:
+            connection = DbConnection("mysql-app", "usuarios")
+            query = """
+            INSERT INTO
+                login(
+                    usuario,
+                    password,
+                    nivel,
+                    idciudad,
+                    id_empleado
+                )
+                VALUES(
+                    '{}',
+                    '{}',
+                    {},
+                    {},
+                    {}
+                );
+            """.format(req['usuario'],req['password'],req['nivel'],req['idciudad'],req['id_empleado'])
+            consoleLog(query)
+            res = connection.query(query)
+            message = res["errorMessage"] if res["error"] else ("" if res["result"] else "No data")
+            result = res["result"]
+            status = 400 if res["error"] else 200
+            error = True if res["error"] else False
+            connection.close()
+        except Exception as e:
+            consoleLog("ERROR: "+str(e))
+            message = str(e)
+            error = True
+            status = 400
+            result = []
+
+        if error:
+            return response(message, error, status, result)
+        
+        return response(message, error, status, result)
 
     return response('User already exists', True, 400)
-
-def check_params(params, request_elements):
-    checks = {k: True if k in request_elements.keys() else False for k in params.keys()}
-    consoleLog([k for k, v in checks.items() if v == False])
-    if False in checks.values():
-        # message = [k for k, v in checks.items() if v == False]
-        return "Missing parameter(s): " \
-            + (", ".join(map(lambda parameter: "'" + str(parameter) + "'", [k for k, v in checks.items() if v == False]))) \
-            + "."
-    return None
-
-def check_type_of_params(params, request_elements):
-    checks = {k: True if  isinstance(request_elements[k], v) else False for k, v in params.items()}
-    if False in checks.values():
-        # message = [k for k, v in checks.items() if v == False]
-        return "Type error in parameter(s): " \
-            + (", ".join(map(lambda parameter: "('" + parameter[0] + "': must be '" + parameter[1].__name__ + "')", [(k, params[k]) for k, v in checks.items() if v == False]))) \
-            + "."
-    return None
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -194,7 +235,6 @@ def login():
         status = 400 if res["error"] else 200
         error = True if res["error"] else False
         connection.close()
-        consoleLog("Connection closed")
     except Exception as e:
         consoleLog(str(e))
         message = str(e)
@@ -234,17 +274,21 @@ def login():
                 'exp' : (date_object + timedelta(minutes=app.config['EXP_TIME'])).timestamp()
             }
             Token = jwt.JWT(header=header, claims=payload)
-            consoleLog(app.config['PRIVATE_KEY'])
+            consoleLog(payload)
             Token.make_signed_token(app.config['PRIVATE_KEY'])
-            return response(result={'token' : Token.serialize()})
-        except ValueError:
-            return response('Unable to create a valid key', True, 401, headers={'WWW-Authenticate': 'Basic realm="Invalid private key"'})
-        except AttributeError:
-            return response('Unable to create a valid key', True, 401, headers={'WWW-Authenticate': 'Basic realm="Unable to create a valid key'})
-        except Exception:
-            return response('Unexpected error', True, 401, headers={'WWW-Authenticate': 'Basic realm="Unexpected"'})
-
-
+            return response(data={'token' : Token.serialize()})
+        except ValueError as e:
+            msg = get_exception_message(e)
+            return response(msg, True, 401, headers={'WWW-Authenticate': 'Basic realm="Invalid private key"'})
+        except AttributeError as e:
+            msg = get_exception_message(e)
+            return response(msg, True, 401, headers={'WWW-Authenticate': 'Basic realm="Unable to create a valid key'})
+        except TypeError as e:
+            msg = get_exception_message(e)
+            return response(msg, True, 401, headers={'WWW-Authenticate': 'Basic realm="Unexpected"'})
+        except Exception as e:
+            msg = get_exception_message(e)
+            return response(msg, True, 401, headers={'WWW-Authenticate': 'Basic realm="Unexpected"'})
     return response('Could not verify', True, 401, headers={'WWW-Authenticate': 'Basic realm="Invalid Credentials"'})
 
 @app.route('/usuarios', methods=['GET', 'POST'])
@@ -268,7 +312,6 @@ def usuarios(**kwargs):
         status = 400 if res["error"] else 200
         error = True if res["error"] else False
         connection.close()
-        consoleLog("Connection closed")
     except Exception as e:
         consoleLog(str(e), "error")
         message = str(e)
@@ -291,7 +334,6 @@ def usuarioPorId(id, **kwargs):
         status = 400 if res["error"] else 200
         error = True if res["error"] else False
         connection.close()
-        consoleLog("Connection closed")
     except Exception as e:
         consoleLog(str(e))
         message = str(e)
