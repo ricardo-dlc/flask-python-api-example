@@ -1,0 +1,6 @@
+# Byte-compiled / optimized / DLL files
+code/__pycache__/
+*.py[cod]
+
+# Keys
+code/keys/*key*

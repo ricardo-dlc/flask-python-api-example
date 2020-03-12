@@ -1,0 +1,16 @@
+version: "3.7"
+services:
+  web:
+    container_name: python-app
+    hostname: python-app
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./code:/app/code
+    networks:
+      - backend
+networks:
+  backend:
+    external:
+      name: backend
