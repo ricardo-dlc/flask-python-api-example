@@ -9,6 +9,10 @@ import bcrypt
 import cryptography
 # import jwt
 
+def read_file(filename):
+    with open(filename, "rb") as pemfile:
+        return jwk.JWK.from_pem(pemfile.read())
+
 logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 # app.config['PRIVATE_KEY'] = 'Th1s1ss3cr3t'
@@ -31,10 +35,6 @@ def consoleLog(message, type="debug"):
     else:
         logger.debug(time)
         logger.debug(message)
-
-def read_file(filename):
-    with open(filename, "rb") as pemfile:
-        return jwk.JWK.from_pem(pemfile.read())
 
 def response(message="", error=False, status=200, data=None, headers=None):
     date_object = datetime.now(timezone(timedelta(hours=-5)))
