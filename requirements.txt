@@ -2,3 +2,5 @@ mysql-connector-python
 flask
 flask-mysql
 jwcrypto
+bcrypt
+cryptography
